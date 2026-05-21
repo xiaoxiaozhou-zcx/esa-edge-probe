@@ -87,10 +87,10 @@ export default {
       return json({ error: "请求体必须是 JSON" }, 400);
     }
 
-    const mode = String(payload.mode || "cf-ip");
+    const mode = String(payload.mode || "cf-hosts");
 
-    if (mode === "cf-ip") {
-      return handleCloudflareIpProbe(payload);
+    if (mode === "cf-hosts" || mode === "cf-ip") {
+      return handleCloudflareHostProbe(payload);
     }
 
     if (mode === "trace-host") {
@@ -108,13 +108,18 @@ export default {
   }
 };
 
-async function handleCloudflareIpProbe(payload) {
-  const parsedTargets = normalizeTargets(payload.targets || payload.target || "");
+async function handleCloudflareHostProbe(payload) {
+  const parsedTargets = normalizeHostTargets(payload.targets || payload.target || "");
   if (!parsedTargets.ok) {
     return json({ error: parsedTargets.error }, 400);
   }
 
   const timeoutMs = clampInteger(payload.timeoutMs, 500, 8000, 3000);
+  const protocol = String(payload.protocol || "http").toLowerCase();
+  if (protocol !== "http" && protocol !== "https") {
+    return json({ error: "协议只能是 http 或 https" }, 400);
+  }
+
   const path = normalizePath(payload.path || "/cdn-cgi/trace");
   if (!path.ok) {
     return json({ error: path.error }, 400);
@@ -122,18 +127,18 @@ async function handleCloudflareIpProbe(payload) {
 
   const results = [];
   for (const target of parsedTargets.value) {
-    results.push(await probeCloudflareIp(target, path.value, timeoutMs));
+    results.push(await probeCloudflareHost(target.host, protocol, path.value, timeoutMs, target.label, target.inputType));
   }
 
   return json({
-    type: "cloudflare-colo-by-ip",
-    transport: "http",
+    type: "cloudflare-colo-by-host",
+    transport: protocol,
     path: path.value,
     timeoutMs,
     count: results.length,
     summary: summarizeResults(results),
     results,
-    note: "CF IP 直连通常会返回 403/error 1003，这是正常现象；只要响应头里有 cf-ray，就能用后缀判断 Cloudflare colo。"
+    note: "如果输入的是 IP，程序会自动转换为 sslip.io 通配解析域名再访问，例如 104.16.124.96 -> 104-16-124-96.sslip.io。Cloudflare 返回 403/error 1003 也可以，只要响应头里有 cf-ray。"
   });
 }
 
@@ -163,15 +168,17 @@ async function handleTraceHostProbe(payload) {
   });
 }
 
-async function probeCloudflareIp(ip, path, timeoutMs) {
-  const targetUrl = new URL(`http://${ip}${path}`);
+async function probeCloudflareHost(host, protocol, path, timeoutMs, label = host, inputType = "domain") {
+  const targetUrl = new URL(`${protocol}://${host}${path}`);
   targetUrl.searchParams.set("_esa_cf_probe", `${Date.now()}`);
 
   return runProbe({
-    label: ip,
+    label,
     url: targetUrl.toString(),
     timeoutMs,
-    evidenceHint: "cf-ray header"
+    evidenceHint: "cf-ray header",
+    requestHost: host,
+    inputType
   });
 }
 
@@ -187,7 +194,7 @@ async function probeTraceHost(host, protocol, timeoutMs) {
   });
 }
 
-async function runProbe({ label, url, timeoutMs, evidenceHint }) {
+async function runProbe({ label, url, timeoutMs, evidenceHint, requestHost = "", inputType = "domain" }) {
   const startedAt = Date.now();
 
   try {
@@ -211,6 +218,8 @@ async function runProbe({ label, url, timeoutMs, evidenceHint }) {
 
     return {
       target: label,
+      requestHost,
+      targetType: inputType,
       url,
       reachable: true,
       cloudflare: isCloudflareResponse({ cfRay, server, text, trace }),
@@ -231,6 +240,8 @@ async function runProbe({ label, url, timeoutMs, evidenceHint }) {
   } catch (error) {
     return {
       target: label,
+      requestHost,
+      targetType: inputType,
       url,
       reachable: false,
       cloudflare: false,
@@ -263,7 +274,7 @@ async function readSmallText(response, maxLength) {
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
-function normalizeTargets(input) {
+function normalizeHostTargets(input) {
   const targets = Array.isArray(input)
     ? input
     : String(input).split(/[\s,;，；]+/);
@@ -271,25 +282,59 @@ function normalizeTargets(input) {
   const cleanTargets = [...new Set(targets.map((item) => String(item).trim()).filter(Boolean))];
 
   if (!cleanTargets.length) {
-    return { ok: false, error: "请输入至少一个 Cloudflare IPv4" };
+    return { ok: false, error: "请输入至少一个域名" };
   }
 
   if (cleanTargets.length > MAX_TARGETS) {
-    return { ok: false, error: `一次最多探测 ${MAX_TARGETS} 个 IP，可分批执行` };
+    return { ok: false, error: `一次最多探测 ${MAX_TARGETS} 个域名，可分批执行` };
   }
 
-  for (const target of cleanTargets) {
-    const ipv4 = parseIPv4(target);
-    if (!ipv4) {
-      return { ok: false, error: `目标不是合法 IPv4：${target}` };
+  const normalized = [];
+  for (const item of cleanTargets) {
+    const host = extractHost(item);
+    const ipv4 = parseIPv4(host);
+    if (ipv4) {
+      if (isBlockedIPv4(ipv4)) {
+        return { ok: false, error: `禁止探测内网、回环、链路本地、多播和保留 IPv4：${host}` };
+      }
+
+      normalized.push({
+        label: host,
+        host: wildcardHostForIPv4(host),
+        inputType: "ip-via-sslip"
+      });
+      continue;
     }
 
-    if (isBlockedIPv4(ipv4)) {
-      return { ok: false, error: `禁止探测内网、回环、链路本地、多播和保留 IPv4：${target}` };
+    if (!isValidDomain(host)) {
+      return { ok: false, error: `目标不是合法域名：${item}` };
+    }
+
+    normalized.push({
+      label: host,
+      host,
+      inputType: "domain"
+    });
+  }
+
+  return { ok: true, value: normalized };
+}
+
+function extractHost(input) {
+  const raw = String(input || "").trim();
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      return new URL(raw).hostname.toLowerCase();
+    } catch {
+      return raw.toLowerCase();
     }
   }
 
-  return { ok: true, value: cleanTargets };
+  return raw.replace(/^\[|\]$/g, "").toLowerCase();
+}
+
+function wildcardHostForIPv4(ip) {
+  return `${ip.replaceAll(".", "-")}.sslip.io`;
 }
 
 function normalizeHost(input) {
