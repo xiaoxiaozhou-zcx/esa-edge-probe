@@ -1,0 +1,9 @@
+{
+  "name": "esa-edge-probe",
+  "entry": "./src/index.js",
+  "assets": {
+    "directory": "./public"
+  },
+  "installCommand": "",
+  "buildCommand": ""
+}
