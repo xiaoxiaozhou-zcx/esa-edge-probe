@@ -5,7 +5,7 @@ const JSON_HEADERS = {
   "access-control-allow-headers": "content-type"
 };
 
-const MAX_TARGETS = 12;
+const MAX_TARGETS = 8;
 
 const COLO_MAP = {
   AMS: ["Amsterdam", "Netherlands", "Europe"],
