@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cloudflare Colo 识别</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --soft: #f1f5f9;
+        --text: #172033;
+        --muted: #64748b;
+        --border: #d8dee9;
+        --accent: #2563eb;
+        --accent-strong: #1d4ed8;
+        --green: #047857;
+        --red: #b42318;
+        --amber: #92400e;
+        --shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      .app {
+        width: min(1240px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 24px 0;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 16px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.07);
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 22px;
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+
+      .brand p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: #fff;
+        color: var(--muted);
+        white-space: nowrap;
+        font-size: 13px;
+      }
+
+      .pulse {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 0 5px rgba(4, 120, 87, 0.12);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .panel-header {
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .panel-header h2 {
+        margin: 0;
+        font-size: 16px;
+        letter-spacing: 0;
+      }
+
+      .panel-body {
+        padding: 18px;
+      }
+
+      .form-grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .field {
+        display: grid;
+        gap: 7px;
+      }
+
+      .field label {
+        color: #334155;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .control,
+      .select,
+      .textarea {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--text);
+        padding: 9px 11px;
+        outline: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      .control,
+      .select {
+        min-height: 42px;
+      }
+
+      .textarea {
+        min-height: 132px;
+        resize: vertical;
+        line-height: 1.55;
+        white-space: pre;
+      }
+
+      .control:focus,
+      .select:focus,
+      .textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+      }
+
+      .inline-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .segmented {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        padding: 4px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--soft);
+      }
+
+      .segmented button {
+        min-height: 36px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .segmented button.active {
+        background: #fff;
+        color: var(--accent-strong);
+        box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+        font-weight: 750;
+      }
+
+      .hint {
+        border: 1px solid #f3d08b;
+        border-radius: 8px;
+        background: #fffbeb;
+        color: var(--amber);
+        padding: 10px 12px;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .primary {
+        display: inline-flex;
+        min-height: 42px;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        flex: 1;
+        border: 0;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+        font-weight: 750;
+        transition: background 0.15s ease;
+      }
+
+      .primary:hover {
+        background: var(--accent-strong);
+      }
+
+      .primary:disabled {
+        cursor: wait;
+        opacity: 0.66;
+      }
+
+      .secondary {
+        min-height: 42px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        color: #334155;
+        cursor: pointer;
+        padding: 0 12px;
+      }
+
+      .result-empty {
+        display: grid;
+        min-height: 440px;
+        place-items: center;
+        padding: 36px;
+        text-align: center;
+        color: var(--muted);
+      }
+
+      .radar {
+        width: 118px;
+        height: 118px;
+        margin: 0 auto 16px;
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        background:
+          radial-gradient(circle at center, rgba(37, 99, 235, 0.2) 0 4px, transparent 5px),
+          repeating-radial-gradient(circle at center, transparent 0 22px, rgba(100, 116, 139, 0.18) 23px 24px),
+          conic-gradient(from 12deg, rgba(37, 99, 235, 0.32), rgba(37, 99, 235, 0.03), rgba(4, 120, 87, 0.22), rgba(37, 99, 235, 0.32));
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+
+      .metric {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fff;
+        padding: 12px;
+      }
+
+      .metric span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
+
+      .metric strong {
+        display: block;
+        overflow-wrap: anywhere;
+        font-size: 19px;
+        letter-spacing: 0;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+
+      table {
+        width: 100%;
+        min-width: 900px;
+        border-collapse: collapse;
+        background: #fff;
+      }
+
+      th,
+      td {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+        font-size: 13px;
+      }
+
+      th {
+        background: #f8fafc;
+        color: #475569;
+        font-weight: 750;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      code {
+        overflow-wrap: anywhere;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        border-radius: 999px;
+        padding: 2px 8px;
+        background: #e0f2fe;
+        color: #075985;
+        font-size: 12px;
+        font-weight: 750;
+        white-space: nowrap;
+      }
+
+      .badge.ok {
+        background: #dcfce7;
+        color: var(--green);
+      }
+
+      .badge.bad {
+        background: #fee2e2;
+        color: var(--red);
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .error {
+        margin-top: 12px;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        background: #fff1f2;
+        color: var(--red);
+        padding: 12px;
+        line-height: 1.55;
+      }
+
+      details {
+        margin-top: 14px;
+      }
+
+      summary {
+        cursor: pointer;
+        color: var(--accent-strong);
+        font-weight: 700;
+      }
+
+      pre {
+        overflow: auto;
+        margin: 10px 0 0;
+        padding: 14px;
+        border-radius: 8px;
+        background: #0f172a;
+        color: #dbeafe;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      @media (max-width: 940px) {
+        .app {
+          width: min(100% - 20px, 720px);
+          padding: 16px 0;
+        }
+
+        .topbar {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .layout,
+        .summary-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .inline-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .actions {
+          flex-direction: column;
+        }
+
+        .primary,
+        .secondary {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg width="25" height="25" viewBox="0 0 25 25" fill="none">
+              <path d="M12.5 3.5v5.2m0 7.6v5.2M3.5 12.5h5.2m7.6 0h5.2" stroke="#2563eb" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="12.5" cy="12.5" r="3.6" stroke="#047857" stroke-width="2"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Cloudflare Colo 识别</h1>
+            <p>Alibaba Cloud ESA Edge to Cloudflare</p>
+          </div>
+        </div>
+        <div class="status-pill"><span class="pulse"></span><span>ESA Function</span></div>
+      </header>
+
+      <section class="layout">
+        <form class="panel" id="probe-form">
+          <div class="panel-header">
+            <h2>探测</h2>
+          </div>
+          <div class="panel-body form-grid">
+            <div class="segmented" role="tablist" aria-label="探测模式">
+              <button type="button" class="active" data-mode="cf-ip">CF IP</button>
+              <button type="button" data-mode="trace-host">Trace 域名</button>
+            </div>
+
+            <div class="field" id="ip-field">
+              <label for="targets">CF IP 列表</label>
+              <textarea class="textarea" id="targets" name="targets" spellcheck="false">104.16.124.96
+104.16.123.96
+172.67.74.226
+1.1.1.1</textarea>
+            </div>
+
+            <div class="field" id="host-field" hidden>
+              <label for="host">Cloudflare 代理域名</label>
+              <input class="control" id="host" name="host" value="www.cloudflare.com" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="inline-grid">
+              <div class="field" id="protocol-field" hidden>
+                <label for="protocol">协议</label>
+                <select class="select" id="protocol" name="protocol">
+                  <option value="https">HTTPS</option>
+                  <option value="http">HTTP</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="timeoutMs">超时 ms</label>
+                <input class="control" id="timeoutMs" name="timeoutMs" type="number" min="500" max="8000" step="100" value="3000">
+              </div>
+            </div>
+
+            <div class="hint" id="ip-hint">HTTP 直连 CF IP 返回 403/error 1003 也可以识别，只要响应头包含 cf-ray。</div>
+            <div class="hint" id="host-hint" hidden>/cdn-cgi/trace 返回的 ip 是 Cloudflare 看到的 ESA 出口地址。</div>
+
+            <div class="actions">
+              <button class="primary" id="submit-button" type="submit">开始识别</button>
+              <button class="secondary" id="reset-button" type="button">清空结果</button>
+            </div>
+          </div>
+        </form>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>结果</h2>
+          </div>
+          <div class="panel-body" id="result">
+            <div class="result-empty">
+              <div>
+                <div class="radar" aria-hidden="true"></div>
+                <div>等待探测</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      const form = document.querySelector("#probe-form");
+      const result = document.querySelector("#result");
+      const submitButton = document.querySelector("#submit-button");
+      const resetButton = document.querySelector("#reset-button");
+      const modeButtons = [...document.querySelectorAll("[data-mode]")];
+      const ipField = document.querySelector("#ip-field");
+      const hostField = document.querySelector("#host-field");
+      const protocolField = document.querySelector("#protocol-field");
+      const ipHint = document.querySelector("#ip-hint");
+      const hostHint = document.querySelector("#host-hint");
+      let activeMode = "cf-ip";
+
+      modeButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          activeMode = button.dataset.mode;
+          modeButtons.forEach((item) => item.classList.toggle("active", item === button));
+          ipField.hidden = activeMode !== "cf-ip";
+          hostField.hidden = activeMode !== "trace-host";
+          protocolField.hidden = activeMode !== "trace-host";
+          ipHint.hidden = activeMode !== "cf-ip";
+          hostHint.hidden = activeMode !== "trace-host";
+        });
+      });
+
+      resetButton.addEventListener("click", () => {
+        result.innerHTML = emptyResult();
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const timeoutMs = Number(formData.get("timeoutMs") || 3000);
+
+        submitButton.disabled = true;
+        submitButton.textContent = "识别中";
+        result.innerHTML = `<div class="result-empty"><div><div class="radar" aria-hidden="true"></div><div>正在等待 ESA 边缘函数返回</div></div></div>`;
+
+        try {
+          if (activeMode === "cf-ip") {
+            const targets = parseTargetsInput(formData.get("targets"));
+            if (!targets.length) {
+              renderError({ error: "请输入至少一个 Cloudflare IPv4" });
+              return;
+            }
+
+            const chunks = chunk(targets, 4);
+            const mergedResults = [];
+            let basePayload = null;
+
+            for (let index = 0; index < chunks.length; index += 1) {
+              submitButton.textContent = `识别中 ${index + 1}/${chunks.length}`;
+              const body = await postProbe({
+                mode: "cf-ip",
+                targets: chunks[index].join("\n"),
+                timeoutMs
+              });
+
+              basePayload = basePayload || body;
+              mergedResults.push(...(body.results || []));
+            }
+
+            renderResult({
+              ...basePayload,
+              count: mergedResults.length,
+              results: mergedResults,
+              summary: summarizeClient(mergedResults),
+              note: `网页已按每批最多 4 个 IP 分批执行。${basePayload?.note || ""}`
+            });
+          } else {
+            const body = await postProbe({
+              mode: "trace-host",
+              host: formData.get("host"),
+              protocol: formData.get("protocol") || "https",
+              timeoutMs
+            });
+
+            renderResult(body);
+          }
+        } catch (error) {
+          renderError({ error: error.message || String(error) });
+        } finally {
+          submitButton.disabled = false;
+          submitButton.textContent = "开始识别";
+        }
+      });
+
+      async function postProbe(payload) {
+        const response = await fetch("/api/probe", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+        const body = await response.json();
+
+        if (!response.ok) {
+          throw new Error(body.error || "请求失败");
+        }
+
+        return body;
+      }
+
+      function renderResult(payload) {
+        const summary = payload.summary || {};
+        const rows = (payload.results || []).map((item) => {
+          const location = formatLocation(item);
+          const status = item.reachable
+            ? `${item.status || "-"} ${escapeHtml(item.statusText || "")}`.trim()
+            : escapeHtml(item.error || "失败");
+
+          return `
+            <tr>
+              <td><code>${escapeHtml(item.target)}</code></td>
+              <td>${item.cloudflare ? '<span class="badge ok">Cloudflare</span>' : '<span class="badge bad">未确认</span>'}</td>
+              <td>${escapeHtml(status)}</td>
+              <td>${item.elapsedMs ?? "-"} ms</td>
+              <td><code>${escapeHtml(item.cfRay || "-")}</code></td>
+              <td>${item.colo ? `<span class="badge">${escapeHtml(item.colo)}</span>` : '<span class="muted">-</span>'}</td>
+              <td>${escapeHtml(location || "-")}</td>
+              <td>${escapeHtml(item.sourceIpSeenByCloudflare || "-")}</td>
+              <td>${escapeHtml(item.evidence || "-")}</td>
+            </tr>
+          `;
+        }).join("");
+
+        result.innerHTML = `
+          <div class="summary-grid">
+            <div class="metric"><span>探测</span><strong>${summary.sent ?? 0}/${summary.received ?? 0}</strong></div>
+            <div class="metric"><span>CF 响应</span><strong>${summary.cloudflare ?? 0}</strong></div>
+            <div class="metric"><span>已识别</span><strong>${summary.identified ?? 0}</strong></div>
+            <div class="metric"><span>Colo</span><strong>${escapeHtml((summary.colos || []).join(", ") || "-")}</strong></div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>目标</th>
+                  <th>识别</th>
+                  <th>HTTP</th>
+                  <th>耗时</th>
+                  <th>CF-Ray</th>
+                  <th>Colo</th>
+                  <th>机房</th>
+                  <th>CF 看到的源 IP</th>
+                  <th>依据</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <div class="hint" style="margin-top: 14px;">${escapeHtml(payload.note || "")}</div>
+          <details>
+            <summary>JSON</summary>
+            <pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>
+          </details>
+        `;
+      }
+
+      function renderError(payload) {
+        result.innerHTML = `
+          <div class="error">
+            <strong>${escapeHtml(payload.error || "请求失败")}</strong>
+            ${payload.detail ? `<div>${escapeHtml(payload.detail)}</div>` : ""}
+          </div>
+          <details open>
+            <summary>JSON</summary>
+            <pre>${escapeHtml(JSON.stringify(payload, null, 2))}</pre>
+          </details>
+        `;
+      }
+
+      function formatLocation(item) {
+        const parts = [item.coloName, item.coloCountry, item.coloRegion].filter(Boolean);
+        return parts.join(" / ");
+      }
+
+      function emptyResult() {
+        return `
+          <div class="result-empty">
+            <div>
+              <div class="radar" aria-hidden="true"></div>
+              <div>等待探测</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function parseTargetsInput(value) {
+        return [...new Set(String(value || "").split(/[\s,;，；]+/).map((item) => item.trim()).filter(Boolean))];
+      }
+
+      function chunk(items, size) {
+        const chunks = [];
+        for (let index = 0; index < items.length; index += size) {
+          chunks.push(items.slice(index, index + size));
+        }
+        return chunks;
+      }
+
+      function summarizeClient(results) {
+        const successful = results.filter((item) => item.reachable);
+        const cloudflare = results.filter((item) => item.cloudflare);
+        const identified = results.filter((item) => item.colo);
+        const latencies = successful.map((item) => item.elapsedMs);
+
+        return {
+          sent: results.length,
+          received: successful.length,
+          cloudflare: cloudflare.length,
+          identified: identified.length,
+          colos: [...new Set(identified.map((item) => item.colo))],
+          lossPercent: results.length ? Math.round(((results.length - successful.length) / results.length) * 10000) / 100 : 0,
+          minMs: latencies.length ? Math.min(...latencies) : null,
+          avgMs: latencies.length ? Math.round((latencies.reduce((sum, value) => sum + value, 0) / latencies.length) * 100) / 100 : null,
+          maxMs: latencies.length ? Math.max(...latencies) : null
+        };
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+    </script>
+  </body>
+</html>
