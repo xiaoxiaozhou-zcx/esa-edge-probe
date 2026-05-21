@@ -5,7 +5,7 @@ const JSON_HEADERS = {
   "access-control-allow-headers": "content-type"
 };
 
-const MAX_TARGETS = 8;
+const MAX_TARGETS = 4;
 
 const COLO_MAP = {
   AMS: ["Amsterdam", "Netherlands", "Europe"],
@@ -138,7 +138,7 @@ async function handleCloudflareHostProbe(payload) {
     count: results.length,
     summary: summarizeResults(results),
     results,
-    note: "如果输入的是 IP，程序会自动转换为 nip.io 通配解析域名再访问，例如 104.16.124.96 -> 104-16-124-96.nip.io。Cloudflare 返回 403/error 1003 也可以，只要响应头里有 cf-ray。"
+    note: "如果输入的是 IP，程序会自动转换为 sslip.io 通配解析域名再访问，例如 104.16.124.96 -> 104-16-124-96.sslip.io。Cloudflare 返回 403/error 1003 也可以，只要响应头里有 cf-ray。"
   });
 }
 
@@ -334,7 +334,7 @@ function extractHost(input) {
 }
 
 function wildcardHostForIPv4(ip) {
-  return `${ip.replaceAll(".", "-")}.nip.io`;
+  return `${ip.replaceAll(".", "-")}.sslip.io`;
 }
 
 function normalizeHost(input) {
