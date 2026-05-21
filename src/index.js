@@ -5,7 +5,7 @@ const JSON_HEADERS = {
   "access-control-allow-headers": "content-type"
 };
 
-const MAX_TARGETS = 8;
+const MAX_TARGETS = 12;
 
 const COLO_MAP = {
   AMS: ["Amsterdam", "Netherlands", "Europe"],
@@ -59,8 +59,8 @@ const COLO_MAP = {
   SYD: ["Sydney", "Australia", "Oceania"],
   TPE: ["Taipei", "Taiwan", "Asia"],
   VIE: ["Vienna", "Austria", "Europe"],
-  YVR: ["Vancouver"， "Canada", "North America"],
-  YYZ: ["Toronto"， "Canada", "North America"],
+  YVR: ["Vancouver", "Canada", "North America"],
+  YYZ: ["Toronto", "Canada", "North America"],
   ZRH: ["Zurich", "Switzerland", "Europe"]
 };
 
@@ -134,11 +134,11 @@ async function handleCloudflareHostProbe(payload) {
     type: "cloudflare-colo-by-host",
     transport: protocol,
     path: path.value,
-    timeoutMs，
-    count: results。length,
+    timeoutMs,
+    count: results.length,
     summary: summarizeResults(results),
-    results，
-    note: "如果输入的是 IP，程序会自动转换为 sslip.io 通配解析域名再访问，例如 104.16.124.96 -> 104-16-124-96.sslip.io。Cloudflare 返回 403/error 1003 也可以，只要响应头里有 cf-ray。"
+    results,
+    note: "如果输入的是 IP，程序会自动转换为 nip.io 通配解析域名再访问，例如 104.16.124.96 -> 104-16-124-96.nip.io。Cloudflare 返回 403/error 1003 也可以，只要响应头里有 cf-ray。"
   });
 }
 
@@ -219,7 +219,7 @@ async function runProbe({ label, url, timeoutMs, evidenceHint, requestHost = "",
     return {
       target: label,
       requestHost,
-      targetType: inputType，
+      targetType: inputType,
       url,
       reachable: true,
       cloudflare: isCloudflareResponse({ cfRay, server, text, trace }),
