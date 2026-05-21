@@ -472,16 +472,27 @@
           </div>
           <div class="panel-body form-grid">
             <div class="segmented" role="tablist" aria-label="探测模式">
-              <button type="button" class="active" data-mode="cf-ip">CF IP</button>
+              <button type="button" class="active" data-mode="cf-hosts">IP/域名批量</button>
               <button type="button" data-mode="trace-host">Trace 域名</button>
             </div>
 
             <div class="field" id="ip-field">
-              <label for="targets">CF IP 列表</label>
-              <textarea class="textarea" id="targets" name="targets" spellcheck="false">104.16.124.96
-104.16.123.96
-172.67.74.226
-1.1.1.1</textarea>
+              <label for="targets">CF IP / CIDR / 域名列表</label>
+              <textarea class="textarea" id="targets" name="targets" spellcheck="false">173.245.48.1
+103.21.244.1
+103.22.200.1
+103.31.4.1
+141.101.64.1
+108.162.192.1
+190.93.240.1
+188.114.96.1
+197.234.240.1
+198.41.128.1
+162.158.0.1
+104.16.0.1
+104.24.0.1
+172.64.0.1
+131.0.72.1</textarea>
             </div>
 
             <div class="field" id="host-field" hidden>
@@ -503,7 +514,7 @@
               </div>
             </div>
 
-            <div class="hint" id="ip-hint">HTTP 直连 CF IP 返回 403/error 1003 也可以识别，只要响应头包含 cf-ray。</div>
+            <div class="hint" id="ip-hint">默认目标是 Cloudflare 官方 IPv4 段每段 1 个代表 IP。也可以手动输入 IP、CIDR 或域名；CIDR 会按每个 /24 取一个样本 IP。</div>
             <div class="hint" id="host-hint" hidden>/cdn-cgi/trace 返回的 ip 是 Cloudflare 看到的 ESA 出口地址。</div>
 
             <div class="actions">
@@ -540,16 +551,17 @@
       const protocolField = document.querySelector("#protocol-field");
       const ipHint = document.querySelector("#ip-hint");
       const hostHint = document.querySelector("#host-hint");
-      let activeMode = "cf-ip";
+      const MAX_EXPANDED_TARGETS = 256;
+      let activeMode = "cf-hosts";
 
       modeButtons.forEach((button) => {
         button.addEventListener("click", () => {
           activeMode = button.dataset.mode;
           modeButtons.forEach((item) => item.classList.toggle("active", item === button));
-          ipField.hidden = activeMode !== "cf-ip";
+          ipField.hidden = activeMode !== "cf-hosts";
           hostField.hidden = activeMode !== "trace-host";
           protocolField.hidden = activeMode !== "trace-host";
-          ipHint.hidden = activeMode !== "cf-ip";
+          ipHint.hidden = activeMode !== "cf-hosts";
           hostHint.hidden = activeMode !== "trace-host";
         });
       });
@@ -568,10 +580,16 @@
         result.innerHTML = `<div class="result-empty"><div><div class="radar" aria-hidden="true"></div><div>正在等待 ESA 边缘函数返回</div></div></div>`;
 
         try {
-          if (activeMode === "cf-ip") {
-            const targets = parseTargetsInput(formData.get("targets"));
+          if (activeMode === "cf-hosts") {
+            const expanded = expandTargetsInput(formData.get("targets"), MAX_EXPANDED_TARGETS);
+            if (!expanded.ok) {
+              renderError({ error: expanded.error });
+              return;
+            }
+
+            const targets = expanded.targets;
             if (!targets.length) {
-              renderError({ error: "请输入至少一个 Cloudflare IPv4" });
+              renderError({ error: "请输入至少一个 IP、CIDR 或域名" });
               return;
             }
 
@@ -582,8 +600,9 @@
             for (let index = 0; index < chunks.length; index += 1) {
               submitButton.textContent = `识别中 ${index + 1}/${chunks.length}`;
               const body = await postProbe({
-                mode: "cf-ip",
+                mode: "cf-hosts",
                 targets: chunks[index].join("\n"),
+                protocol: "http",
                 timeoutMs
               });
 
@@ -596,7 +615,7 @@
               count: mergedResults.length,
               results: mergedResults,
               summary: summarizeClient(mergedResults),
-              note: `网页已按每批最多 4 个 IP 分批执行。${basePayload?.note || ""}`
+              note: `${expanded.note} 网页已按每批最多 4 个目标分批执行。${basePayload?.note || ""}`
             });
           } else {
             const body = await postProbe({
@@ -644,6 +663,7 @@
           return `
             <tr>
               <td><code>${escapeHtml(item.target)}</code></td>
+              <td><code>${escapeHtml(item.requestHost || "-")}</code></td>
               <td>${item.cloudflare ? '<span class="badge ok">Cloudflare</span>' : '<span class="badge bad">未确认</span>'}</td>
               <td>${escapeHtml(status)}</td>
               <td>${item.elapsedMs ?? "-"} ms</td>
@@ -668,6 +688,7 @@
               <thead>
                 <tr>
                   <th>目标</th>
+                  <th>实际请求域名</th>
                   <th>识别</th>
                   <th>HTTP</th>
                   <th>耗时</th>
@@ -718,8 +739,44 @@
         `;
       }
 
-      function parseTargetsInput(value) {
-        return [...new Set(String(value || "").split(/[\s,;，；]+/).map((item) => item.trim()).filter(Boolean))];
+      function expandTargetsInput(value, maxTargets) {
+        const rawItems = String(value || "").split(/[\s,;，；]+/).map((item) => item.trim()).filter(Boolean);
+        const seen = new Set();
+        const targets = [];
+        let cidrCount = 0;
+        let sampleCount = 0;
+
+        for (const item of rawItems) {
+          const expanded = item.includes("/") ? expandCidrSampledBy24(item) : { ok: true, targets: [item] };
+          if (!expanded.ok) {
+            return expanded;
+          }
+
+          if (item.includes("/")) {
+            cidrCount += 1;
+            sampleCount += expanded.targets.length;
+          }
+
+          for (const target of expanded.targets) {
+            if (seen.has(target)) {
+              continue;
+            }
+            seen.add(target);
+            targets.push(target);
+            if (targets.length > maxTargets) {
+              return {
+                ok: false,
+                error: `展开后超过 ${maxTargets} 个目标。请缩小 IP 段，或分多次测试。`
+              };
+            }
+          }
+        }
+
+        const note = cidrCount
+          ? `已从 ${cidrCount} 个 CIDR 段按每 /24 一个样本展开出 ${sampleCount} 个 IP。`
+          : "未输入 CIDR 段。";
+
+        return { ok: true, targets, note };
       }
 
       function chunk(items, size) {
@@ -747,6 +804,108 @@
           avgMs: latencies.length ? Math.round((latencies.reduce((sum, value) => sum + value, 0) / latencies.length) * 100) / 100 : null,
           maxMs: latencies.length ? Math.max(...latencies) : null
         };
+      }
+
+      function expandCidrSampledBy24(value) {
+        const match = String(value).trim().match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+        if (!match) {
+          return { ok: false, error: `CIDR 格式不正确：${value}` };
+        }
+
+        const ip = parseIPv4(match[1]);
+        const prefix = Number(match[2]);
+        if (!ip || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) {
+          return { ok: false, error: `CIDR 格式不正确：${value}` };
+        }
+
+        if (isBlockedIPv4(ip)) {
+          return { ok: false, error: `禁止探测内网、回环、链路本地、多播和保留 IPv4：${match[1]}` };
+        }
+
+        const ipNumber = ipv4ToNumber(ip);
+        const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+        const start = ipNumber & mask;
+        const size = prefix === 0 ? 0x100000000 : 2 ** (32 - prefix);
+        const end = start + size - 1;
+
+        if (prefix >= 24) {
+          const bytes = numberToIPv4(pickHostSample(start, end));
+          return { ok: true, targets: isBlockedIPv4(bytes) ? [] : [bytes.join(".")] };
+        }
+
+        const step = 256;
+        const firstSample = start + 1;
+        const targets = [];
+
+        for (let current = firstSample; current <= end; current += step) {
+          const bytes = numberToIPv4(current);
+          if (!isBlockedIPv4(bytes)) {
+            targets.push(bytes.join("."));
+          }
+        }
+
+        return { ok: true, targets };
+      }
+
+      function parseIPv4(value) {
+        const parts = String(value).split(".");
+        if (parts.length !== 4) {
+          return null;
+        }
+
+        const bytes = [];
+        for (const part of parts) {
+          if (!/^(0|[1-9]\d{0,2})$/.test(part)) {
+            return null;
+          }
+          const byte = Number(part);
+          if (byte > 255) {
+            return null;
+          }
+          bytes.push(byte);
+        }
+        return bytes;
+      }
+
+      function ipv4ToNumber(bytes) {
+        return (((bytes[0] * 256 + bytes[1]) * 256 + bytes[2]) * 256 + bytes[3]) >>> 0;
+      }
+
+      function numberToIPv4(number) {
+        return [
+          (number >>> 24) & 255,
+          (number >>> 16) & 255,
+          (number >>> 8) & 255,
+          number & 255
+        ];
+      }
+
+      function pickHostSample(start, end) {
+        if (end - start >= 2) {
+          return start + 1;
+        }
+        return start;
+      }
+
+      function isBlockedIPv4(bytes) {
+        const [a, b, c, d] = bytes;
+        return (
+          a === 0 ||
+          a === 10 ||
+          a === 127 ||
+          (a === 100 && b >= 64 && b <= 127) ||
+          (a === 169 && b === 254) ||
+          (a === 172 && b >= 16 && b <= 31) ||
+          (a === 192 && b === 168) ||
+          (a === 192 && b === 0 && c === 0) ||
+          (a === 192 && b === 0 && c === 2) ||
+          (a === 198 && b === 18) ||
+          (a === 198 && b === 19) ||
+          (a === 198 && b === 51 && c === 100) ||
+          (a === 203 && b === 0 && c === 113) ||
+          a >= 224 ||
+          (a === 255 && b === 255 && c === 255 && d === 255)
+        );
       }
 
       function escapeHtml(value) {
